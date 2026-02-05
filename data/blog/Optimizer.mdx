@@ -4,6 +4,7 @@ date: '2025-02-04'
 tags: ['markdown', 'db', 'features', 'optimizer']
 draft: false
 summary: Optimal Path Discovery
+images: ['/static/images/data/optimizer.png']
 description: 'Analysis of why relocating filters in subqueries did not result in significant performance gains.'
 ---
 
@@ -42,32 +43,71 @@ A SQL statement only defines the objective (**What**), while the **DB Optimizer*
 
 ---
 
-# Optimizer
+# What I studied after the test
 
-## Core Role: "Optimal Path Discovery"
+## 1. How Indexes Work: B-Tree Traversal
 
-- The PostgreSQL Optimizer is the core engine that selects the **`Execution Plan`** with the lowest **`Cost`** to execute an SQL statement.
-- While the user declares **`What`** to retrieve, the optimizer determines **`How`** to retrieve it.
+An index is like a **'Table of Contents'** or an **'Index'** in the back of a book. With an index, the database doesn't have to read the entire table; instead, it follows a B-Tree structure to quickly pinpoint the exact location (address) of the data.
+
+- **Operation:** The search traverses from the **Root Node** → **Branch Nodes** → **Leaf Nodes** to obtain the Record ID (RID). It then "jumps" directly to the actual table block to fetch the data.
+
+## 2. Why Use a B-Tree for Indexing?
+
+B-Trees are used because they provide consistent search performance (O(logN)) and maintain efficiency even with massive datasets.
+
+- **Balanced:** The height of the tree remains consistent even as data is added or deleted, ensuring predictable performance.
+- **Efficient Range Scans:** Unlike Hash indexes (which only support equality checks), B-Tree leaf nodes are linked together, making them exceptionally fast for scanning a range of data.
+
+## 3. Index Conditions and SARGability
+
+For an index to be effective, the columns used in the `WHERE` clause or `JOIN` conditions must match the index configuration.
+
+- **Example:** If you have a composite index on `(Name, Age)` but search only by `Age`, the database might not be able to use the index effectively. This is due to the **Left-Prefix Rule**, where the leftmost column must be present in the query to trigger the index.
+
+## 4. The Importance of Statistics
+
+The **Optimizer** relies on statistics to calculate the **"Estimated Cost"** of a query.
+
+- **The Risk:** If a table has 100 million rows but the statistics incorrectly report only 100, the Optimizer may mistakenly choose a slow **Sequential Scan** (Full Table Scan) instead of an Index Scan.
+- **Key Metrics:** Statistics track table size, column value distribution (histograms), and NULL ratios to provide the foundation for an optimal execution plan.
 
 ---
 
-### 1. Key Operational Steps
+### 💡 Pro Tip: Handling Bulk Inserts
 
-1. **Candidate Generation:** Lists all possible execution paths, such as Index Scans, Sequential Scans (Full Scans), and various Join methods.
-2. **Cost Estimation:** Quantifies the **`Cost`** for each path by calculating factors like disk I/O and CPU computational load.
-3. **Final Selection:** Confirms the path with the lowest calculated **`Cost`** as the final execution plan and passes it to the engine.
+Updating an index for every single row during a multi-million row insertion is highly inefficient. In production environments, engineers often use this strategy:
 
-### 2. Basis of Judgment: Statistics
+1. **Drop or Disable** the indexes.
+2. **Perform Bulk Insertion** (e.g., using the `COPY` command).
+3. **Rebuild/Re-create** the indexes: Sorting the data once to build the index from scratch is significantly faster than updating it incrementally.
 
-The optimizer does not rely on guesswork; it makes decisions based on **Statistics** collected from the real-time state of the tables.
+## Database Performance: It's All About the Optimizer and Scan Depth
 
-- Total number of rows in the table.
-- Number of unique values (**`Cardinality`**).
-- Data alignment and distribution patterns.
+Database performance is less about specific keywords and more about **how the Optimizer utilizes indexes** and **how much data it actually scans**.
 
-### 3. **Key to Large-Scale DB Performance: Indexes and the Optimizer**
+### 1. The `OR` Condition
 
-**In environments with millions of records, query speed is determined by efficient index utilization.**
+`OR` is one of the most challenging conditions for performance optimization.
 
-- **Impact of Indexing:** Whether the system uses an efficient index or performs a full scan can result in a performance difference of **thousands of times**.
-- **Optimizer's Function:** The **Optimizer** automatically decides whether to use an index and which execution path to take based on data statistics.
+- **Performance Impact:** If even one of the columns connected by `OR` lacks an index, the Optimizer is likely to resort to a **Full Table Scan**. Even if both columns are indexed, the process of combining them (**Index Merge**) incurs additional overhead.
+- **The Solution:** Using `UNION ALL` is often more efficient. It allows each sub-query to independently and reliably utilize its respective index.
+
+---
+
+### 2. `EXISTS` vs. `NOT EXISTS`
+
+These conditions operate as **Semi-joins** and generally offer superior performance.
+
+- **EXISTS:** It uses **Short-circuit** logic—the scan stops immediately once a matching record is found. This makes it incredibly fast for existence checks.
+- **NOT EXISTS:** While it may be slightly slower than `EXISTS` (as it must verify the absence of data), it is significantly safer and faster than `NOT IN`.
+- **Efficiency:** These are most effective when the main query returns many rows but the subquery results are relatively small.
+
+---
+
+### 3. `IN` vs. `NOT IN`
+
+While `IN` offers great readability, its performance varies based on data volume and distribution.
+
+- **IN:** Internally, it is processed as a set of `OR` conditions or converted into a `JOIN`. In modern databases, the performance gap between `IN` and `EXISTS` is minimal due to advanced optimization.
+- **NOT IN (Caution):** This is often the most dangerous operator for performance. It frequently fails to utilize indexes.
+- **The NULL Trap:** If the subquery result contains a **NULL**, a `NOT IN` clause may return no results or behave unpredictably. For large datasets, it is highly recommended to use **`NOT EXISTS`** or a **`LEFT JOIN + IS NULL`** pattern instead.
