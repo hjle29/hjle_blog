@@ -1,0 +1,73 @@
+---
+title: 'Understanding DB Optimizer via Sales Query Optimization'
+date: '2025-02-04'
+tags: ['markdown', 'db', 'features', 'optimizer']
+draft: false
+summary: Optimal Path Discovery
+description: 'Analysis of why relocating filters in subqueries did not result in significant performance gains.'
+---
+
+# Understanding DB Optimizer Behavior via Sales Query Optimization
+
+This post documents the process of reviewing execution plans and testing improvement strategies to address performance degradation in sales history queries.
+
+## 1. Existing Query Structure and Problem Identification
+
+The original query used `UNION ALL` to combine positive sales and sales cancellations. The logical execution flow was as follows:
+
+1.  **Aggregation**: Performing a `SUM` on the 'Surcharge' table (the largest dataset) based on order numbers and product sequences.
+2.  **Join**: Joining the result with the 'Orders' table in the outer query.
+3.  **Filtering**: Applying a filter to retain only orders from the company’s direct mall.
+
+### Initial Hypothesis
+
+Based on the logical structure, I assumed the database would aggregate the entire volume of surcharge data before joining and filtering. Consequently, I expected that pushing the filter into the subquery would reduce the volume of data to be aggregated, thereby significantly improving performance.
+
+## 2. Test Results and Observations
+
+Despite relocating the filter according to the hypothesis, **no significant performance difference was observed.** Despite the logical expectation that reducing the initial dataset would lower computational overhead, the results remained nearly identical. Further analysis revealed this was due to the optimization mechanisms of the **Database Optimizer**.
+
+## 3. The Role of the DB Optimizer
+
+A SQL statement only defines the objective (**What**), while the **DB Optimizer** determines the actual execution strategy (**How**).
+
+- **Execution Plan Optimization**: The optimizer selects the lowest-cost path based on table statistics.
+- **Predicate Push-down**: The filter I attempted to move manually was already being repositioned by the optimizer to the most efficient location (e.g., inside the subquery) during the query analysis phase.
+- **Conclusion**: Regardless of how a user logically structures a SQL statement, the optimizer reconfigures it at the execution stage if it identifies a more efficient path that guarantees the same result.
+
+## 4. Key Takeaways
+
+- **Importance of Empirical Testing**: When tuning queries, empirical performance measurement in a real environment is more critical than making structural changes based on assumptions.
+- **Analysis of Execution Plans**: I realized that analyzing the **Execution Plan (EXPLAIN)** generated internally by the DB is more fundamental to performance optimization than the SQL syntax itself.
+
+---
+
+# Optimizer
+
+## Core Role: "Optimal Path Discovery"
+
+- The PostgreSQL Optimizer is the core engine that selects the **`Execution Plan`** with the lowest **`Cost`** to execute an SQL statement.
+- While the user declares **`What`** to retrieve, the optimizer determines **`How`** to retrieve it.
+
+---
+
+### 1. Key Operational Steps
+
+1. **Candidate Generation:** Lists all possible execution paths, such as Index Scans, Sequential Scans (Full Scans), and various Join methods.
+2. **Cost Estimation:** Quantifies the **`Cost`** for each path by calculating factors like disk I/O and CPU computational load.
+3. **Final Selection:** Confirms the path with the lowest calculated **`Cost`** as the final execution plan and passes it to the engine.
+
+### 2. Basis of Judgment: Statistics
+
+The optimizer does not rely on guesswork; it makes decisions based on **Statistics** collected from the real-time state of the tables.
+
+- Total number of rows in the table.
+- Number of unique values (**`Cardinality`**).
+- Data alignment and distribution patterns.
+
+### 3. **Key to Large-Scale DB Performance: Indexes and the Optimizer**
+
+**In environments with millions of records, query speed is determined by efficient index utilization.**
+
+- **Impact of Indexing:** Whether the system uses an efficient index or performs a full scan can result in a performance difference of **thousands of times**.
+- **Optimizer's Function:** The **Optimizer** automatically decides whether to use an index and which execution path to take based on data statistics.
