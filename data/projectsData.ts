@@ -7,20 +7,16 @@ interface Project {
 
 const projectsData: Project[] = [
   {
-    title: 'A Search Engine',
-    description: `What if you could look up any information in the world? Webpages, images, videos
-    and more. Google has many features to help you find exactly what you're looking
-    for.`,
-    imgSrc: '/static/images/google.png',
-    href: 'https://www.google.com',
+    title: 'A Fashion Mall',
+    description: `THE HANDSOME`,
+    imgSrc: '/static/images/thehandsome.png',
+    href: 'https://www.thehandsome.com/en',
   },
   {
-    title: 'The Time Machine',
-    description: `Imagine being able to travel back in time or to the future. Simple turn the knob
-    to the desired date and press "Go". No more worrying about lost keys or
-    forgotten headphones with this simple yet affordable solution.`,
-    imgSrc: '/static/images/time-machine.jpg',
-    href: '/blog/the-time-machine',
+    title: 'A Shopping Mall Back-Office',
+    description: `X2BEE`,
+    imgSrc: '/static/images/x2bee.png',
+    href: 'https://ai-exp.x2bee.com/chatbot/chat-shopping',
   },
 ]
 
