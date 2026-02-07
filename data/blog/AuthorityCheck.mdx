@@ -1,0 +1,95 @@
+---
+title: 'From Hundreds of If-Statements to a Single Annotation'
+date: '2024-12-02'
+tags: ['java', 'aop', 'annotation', 'security', 'validation']
+summary: : Automating Authorization with AOP
+description: 'Automating Authorization with AOP'
+---
+
+## 1. Context: Security Debt Behind a Growing Service
+
+The platform I managed was a back-office environment where numerous users managed their own sets of data. In such a structure, **Data Isolation**—ensuring each tenant or seller can only access their own data—is not just a feature, but a fundamental requirement.
+
+As the service scaled and the number of APIs multiplied, I faced a growing sense of risk and inefficiency. In a back-office setting, unauthorized data exposure or modification is more than just a bug; it is a critical security breach that directly compromises service reliability. However, relying on manual validation led to several roadblocks:
+
+- **Redundant Code:** Identical `if` statements comparing session data with request parameters were being repeated across hundreds of APIs.
+- **High Risk of Human Error:** If a developer accidentally missed a validation check, it created an immediate **IDOR (Insecure Direct Object Reference)** vulnerability.
+
+To break free from this **"cycle of manual validation,"** I began designing a structural solution that could guarantee security at the system level.
+
+## 2. Solution: Declarative Validation via AOP
+
+### [Step 1] Entry Point: Declarative Authorization with AOP
+
+My primary goal was to eliminate code redundancy.
+
+- **WHY?** Authorization is a **'Cross-cutting Concern,'** not core business logic. I wanted to decouple this from the controllers and services, resolving it with a single `@CheckDataAuthority` annotation.
+- **RESULT** By using an Aspect to intercept and compare session credentials with request parameters, developers could finally focus entirely on business logic without worrying about repetitive security checks.
+
+### [Step 2] Data Manipulation: DB-based Final Integrity Check
+
+Request parameters can be tampered with. To prevent cases where a user might manipulate a database key other than their account ID, I established a **"Second Line of Defense"** right before the data is actually modified.
+
+- **Implementation:** Within the API logic, the system first retrieves the target object from the DB. It then performs a final verification to ensure the data belongs to the currently authenticated user.
+- **Intent:** Even if an external attacker attempts to manipulate parameters, the modification will fail if the owner of the stored data does not match the requester, ensuring total **Data Integrity**.
+
+---
+
+## 3. Technical Implementation
+
+### Custom Annotation Definition
+
+The annotation is designed to target methods and persist until runtime.
+
+```java
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface CheckDataAuthority {
+    // Designed with scalability in mind (e.g., adding roles or permission levels later).
+}
+```
+
+### Integrating Validation Logic via Aspect
+
+Using `JoinPoint`, the system dynamically extracts the ID from incoming DTOs or parameters and compares it with the session info.
+
+```java
+@Aspect
+@Component
+public class AuthorityAspect {
+
+    @Before("@annotation(com.service.annotation.CheckDataAuthority)")
+    public void validateDataAuthority(JoinPoint joinPoint) {
+        // 1. Extract the current user's ID from SecurityContext or Session
+        String sessionId = SecurityUtil.getCurrentId();
+
+        // 2. Extract the requested Data Owner ID (e.g., mallId) from method arguments
+        Object[] args = joinPoint.getArgs();
+        String requestId = extractId(args);
+
+        // 3. Verify ownership
+        if (requestId != null && !requestId.equals(sessionId)) {
+            throw new AccessDeniedException("You do not have permission to access this data.");
+        }
+    }
+
+    private String extractId(Object[] args) {
+        // Utility logic to find the ID within DTOs or String parameters
+        // ...
+    }
+}
+```
+
+## 4. Results and Impact
+
+Introducing this structure brought meaningful changes to the entire platform:
+
+- **Boosted Productivity:** By modularizing security logic into a single Aspect, we reduced security-related boilerplate code in individual controllers by **over 80%**.
+- **Centralized Maintenance:** When security policies change, we no longer need to sift through hundreds of files. Updating the `AuthorityAspect` class applies the changes across the entire service instantly.
+- **Enhanced Security:** Developers can now secure an endpoint with just one line of code. This leaves no room for "forgetting a check," effectively shielding the system from IDOR vulnerabilities by design.
+
+### Closing Thoughts
+
+What started as a simple desire to clean up messy `if` statements evolved into a robust security framework. I asked myself, "How can I make development both safer and more convenient?"
+
+As it turned out, this validation logic was a necessity for the entire platform, not just my module. I eventually shared this approach with other teams, leading to a collective increase in development speed and security standards. Seeing my architectural choice improve the daily workflow of my colleagues has been one of my most rewarding experiences as a developer.
