@@ -118,7 +118,9 @@ export default function ListLayout({
         <ul>
           {!filteredBlogPosts.length && 'No posts found.'}
           {displayPosts.map((post) => {
-            const { path, date, title, summary, tags } = post
+            const { path, date, title, summary, tags, images } = post
+            const displayImage = images && images.length > 0 ? images[0] : null
+
             return (
               <li key={path} className="py-4">
                 <article className="space-y-2 xl:grid xl:grid-cols-4 xl:items-baseline xl:space-y-0">
@@ -133,6 +135,13 @@ export default function ListLayout({
                       <h3 className="text-2xl leading-8 font-bold tracking-tight">
                         <Link href={`/${path}`} className="text-gray-900 dark:text-gray-100">
                           {title}
+                          {displayImage && (
+                            <img
+                              src={displayImage}
+                              alt={title}
+                              className="h-40 w-full rounded object-cover"
+                            />
+                          )}
                         </Link>
                       </h3>
                       <div className="flex flex-wrap">
