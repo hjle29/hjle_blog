@@ -1,0 +1,56 @@
+---
+title: 'Kafka in MSA (Micro-Service Architecture)'
+date: '2025-12-30'
+tags: ['java', 'cloud', 'msa', 'transaction', 'db']
+summary: Kafka in MSA (Micro-Service Architecture)
+description: 'Kafka in MSA (Micro-Service Architecture)'
+---
+
+## Case Scenarios
+
+#### 1. User Registration (MEMBER-API)
+
+The system processes registration-related database tasks and then calls the **ORDER-API** for coupon issuance within a single transaction.
+
+- **Challenge:** The **ORDER-API** cannot access the newly created user information yet (meaning it cannot determine the user's grade). Therefore, it can only perform issuance processing after checking for duplicates based on the provided `mbrNo` and `promoNo`.
+- **Reason:** This occurs because the **Transaction Isolation Level** is maintained only within the same database session.
+
+### 2. Order Processing
+
+If an exception occurs during the order process, a `rollbackProcess` is triggered to call the rollback logic for external API calls.
+
+- **Challenge:** If the **ORDER-API** itself crashes or is forcibly terminated during the order process, the `rollbackProcess` is never executed. This leads to a data inconsistency between APIs.
+
+---
+
+## Why Kafka is Necessary
+
+- **Extension of Isolation:** Transaction isolation can be extended from a session-based scope to the entire system.
+- **Guaranteed Consistency:** Even if a service is forcibly terminated, the **Final Consistency (Eventual Consistency)** of message publishing is guaranteed through Outbox records persisted in the database.
+- **Simplified Rollback:** Since the DB modification and the Outbox record are managed as a single atomic transaction, it simplifies the complex `rollbackProcess`.
+- **Idempotency Requirement:** Because message publishing from Outbox records can occur more than once (at-least-once delivery), defensive logic against duplicate processing is required.
+
+---
+
+## 📝 Comparison of Data Isolation and Consistency in System Failure Scenarios
+
+### 1. Without Kafka (Direct REST API Call)
+
+In this approach, "the local service and the external service share the same fate in real-time."
+
+- **Exception:** If the coupon issuance API fails during registration, the developer must manually roll back the entire process or call a complex cancellation API.
+- **System Crash:** If the server crashes just before or during the API call, the local DB will roll back, but there is no way to cancel the API request that has already been dispatched. The probability of data corruption is very high.
+- **Deployment:** If the target service is being deployed and cannot respond, the calling service will also encounter an error or fall into an infinite timeout.
+
+### 2. With Kafka (Outbox Pattern + CDC)
+
+In this approach, "as long as it is recorded in my DB, Kafka takes care of the rest."
+
+- **Exception:**
+  - Business logic (Registration/Order) and the event record (Outbox) are bundled into a **single transaction**.
+  - If an error occurs, both records are rolled back together. No message is ever sent to Kafka, perfectly maintaining data isolation.
+- **System Crash:**
+  - Even if the server crashes after a DB **Commit**, the **event record remains persisted** in the database.
+  - Once the server restarts or a CDC (e.g., Debezium) reads the DB logs, the message is eventually dispatched to Kafka, ensuring the data eventually matches.
+- **Deployment:**
+  - Even if the target service is down, messages are safely queued in Kafka. The target service processes the messages as soon as it is back online after deployment, preventing failure propagation.
